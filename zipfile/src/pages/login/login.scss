@@ -1,0 +1,133 @@
+// ============================================================
+// Login Page – global SCSS
+// MUI sx props (palette, breakpoints, spacing shorthands) are
+// left untouched in the component files.
+// ============================================================
+
+// ----- Page root -----
+.login-page {
+  background-color: #FCFCFC;
+  background-size: contain;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  overflow: auto;
+}
+
+// ----- Decorative shapes -----
+.login-shape {
+  position: absolute;
+  left: 0;
+
+  &--top {
+    top: 0;
+  }
+
+  &--bottom {
+    bottom: 0;
+  }
+}
+
+// ----- AI Spark icon wrapper -----
+.ai-spark-container {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+// ============================================================
+// Marketing Badge
+// ============================================================
+.marketing-badge {
+  width: fit-content;
+  border-radius: 8px;
+  padding: 4px 7px;
+  background: rgba(0, 0, 0, 0.41);
+  border: 0.617px solid rgba(255, 255, 255, 0.12);
+
+  &__dot {
+    width: 6.175px;
+    height: 6.175px;
+    aspect-ratio: 1 / 1;
+    background: #FFD82F;
+    border-radius: 50%;
+  }
+
+  &__text {
+    color: #D1D5DC !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    font-style: normal;
+    font-family: 'Inter', sans-serif !important;
+  }
+}
+
+// ============================================================
+// Marketing Title Bar
+// ============================================================
+.marketing-title {
+  &__weave-text {
+    background: linear-gradient(152deg, #FFD82F 75.92%, #846C00 99.5%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-size: clamp(32px, 2.5vw, 56px) !important;
+    font-style: normal;
+    font-weight: 500 !important;
+    line-height: clamp(42px, 3.2vw, 72px) !important;
+    letter-spacing: 0.18px !important;
+  }
+}
+
+// ============================================================
+// Form Container
+// ============================================================
+.form-container-wrapper {
+  flex: 1 1 40%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.form-container-inner {
+  width: 100%;
+}
+
+.form-btn {
+  height: 44px;
+  text-transform: uppercase !important;
+}
+
+.form-welcome-title {
+  font-weight: 600 !important;
+  line-height: normal !important;
+  letter-spacing: 0.14px !important;
+  font-family: 'Poppins', sans-serif !important;
+  font-size: 20px !important;
+}
+
+.form-label-small {
+  font-family: revert !important;
+  font-size: 12px !important;
+}
+
+.form-forgot-password {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.form-no-account {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.form-signup-link {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #6D5306 !important;
+  font-family: 'Poppins', sans-serif !important;
+}

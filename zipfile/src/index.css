@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+	--color-primary: #f97316;
+	--color-primary-dark: #ea580c;
+	--color-primary-light: #fdba74;
+	--color-sidebar-bg: #0f0e22;
+	--color-sidebar-hover: #1e1d3a;
+	--color-sidebar-active-bg: rgba(249, 115, 22, 0.12);
+	--color-surface: #ffffff;
+	--color-surface-2: #f8f8fb;
+	--color-border: #e5e7eb;
+	--color-text-primary: #111827;
+	--color-text-secondary: #6b7280;
+	--color-text-muted: #9ca3af;
+	--font-sans: "Inter", system-ui, -apple-system, sans-serif;
+	--font-avgarddo: "AvgarDDO", serif;
+}
+
+@font-face {
+	font-family: 'Lufga';
+	src: url('./assets/fonts/lufga/font.otf') format('opentype');
+	font-weight: normal;
+	font-style: normal;
+}
+
+@font-face {
+	font-family: 'AvgarDD';
+	src: url('./assets/fonts/AvgarDDO/AVGARDD_2.TTF') format('truetype');
+	font-weight: normal;
+	font-style: normal;
+	font-display: swap;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+@layer base {
+
+	html,
+	body {
+		height: 100%;
+		margin: 0;
+		padding: 0;
+		font-family: "Inter", system-ui, -apple-system, sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+}
+
+#root {
+	height: 100%;
+	width: 100%;
+}
+
+/* Custom scrollbar
+::-webkit-scrollbar {
+	width: 0.3125rem;
+	height: 0.3125rem;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #d1d5db;
+	border-radius: 0.1875rem;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #9ca3af;
+} */
+
+/* Focus ring */
+:focus-visible {
+	/* outline: 0.125rem solid #f97316; */
+	outline-offset: 0.125rem;
+	border-radius: 0.25rem;
+}
+
+/* Hide scrollbar but keep scrolling */
+.no-scrollbar::-webkit-scrollbar {
+	display: none;
+}
+
+.no-scrollbar {
+	-ms-overflow-style: none;
+	/* IE/Edge */
+	scrollbar-width: none;
+	/* Firefox */
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+	display: none;
+}
+
+/* BUTTON (VARIANTS) */
+
+.back_button {
+	@apply flex flex-row items-center px-2.5 py-1.5 rounded-[10px] border-[0.8px] border-solid border-[#E4E4E4];
+	background: #eee;
+}
+
+.back_button_text {
+	@apply text-black text-[12px] not-italic font-bold leading-6 uppercase;
+	font-family: "Inter", system-ui, -apple-system, sans-serif;
+}

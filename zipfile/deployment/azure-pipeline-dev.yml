@@ -1,0 +1,344 @@
+parameters:
+  - name: snykServiceConnection
+    type: string
+    default: 'Randomtrees-Snyk-ServiceConnection'
+
+trigger:
+  branches:
+    include:
+      - feature/pipeline-validation
+
+pr:
+  branches:
+    include:
+      - feature/pipeline-validation
+
+variables:
+  - group: pipeline-secrets
+  # NOTE: Azure DevOps does not expand variables for `environment.resourceName` during YAML validation.
+  # Keep the Environment/VM resource names as literals in the deployment job below.
+
+  # Container image settings
+  - name: DOCKER_IMAGE_NAME
+    value: weave-agent-dev-ui
+  - name: DEV_HEALTHCHECK_URL
+    value: https://weave-agent-dev-v2.rtdomain.in
+  # Optional additional smoke test URL (defaults to DEV_HEALTHCHECK_URL).
+  - name: DEV_SMOKE_TEST_URL
+    value: https://weave-agent-dev-v2.rtdomain.in
+  - name: COMMIT_LINT_MODE
+    value: strict
+
+stages:
+  - stage: Build
+    displayName: Build, Version, Scan, Changelog
+    jobs:
+      - job: BuildJob
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          # ✅ Full git history required for GitVersion
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0
+
+          # Node setup
+          - task: NodeTool@0
+            inputs:
+              versionSpec: 20.x
+
+          # Enforce Conventional Commit messages
+          - script: |
+              if [ -f scripts/release/validate_commit_messages.sh ]; then
+                bash scripts/release/validate_commit_messages.sh
+              else
+                echo "Commit validation script not found, skipping."
+              fi
+            displayName: Validate Commit Messages
+            env:
+              COMMIT_LINT_MODE: $(COMMIT_LINT_MODE)
+
+          # Azure DevOps validates service connections at compile time.
+          # Set `parameters.snykServiceConnection` to the literal authorized Snyk connection name
+          # (for example `snykToken`) to populate the "Snyk Report" tab.
+          - ${{ if ne(parameters.snykServiceConnection, '') }}:
+            - task: SnykSecurityScan@1
+              displayName: Snyk Dependency Scan
+              inputs:
+                serviceConnectionEndpoint: '${{ parameters.snykServiceConnection }}'
+                testType: 'app'
+                monitorWhen: 'always'
+                failOnIssues: false
+                organization: '$(SNYK_ORG)'
+                severityThreshold: 'high'
+                projectName: '$(Build.Repository.Name)-dependencies'
+                testDirectory: '.'
+                targetFile: 'package.json'
+                additionalArguments: '--all-projects'
+              continueOnError: true
+
+            - task: SnykSecurityScan@1
+              displayName: Snyk Code Scan
+              inputs:
+                serviceConnectionEndpoint: '${{ parameters.snykServiceConnection }}'
+                testType: 'code'
+                failOnIssues: false
+                organization: '$(SNYK_ORG)'
+                codeSeverityThreshold: 'high'
+                projectName: '$(Build.Repository.Name)-code'
+              continueOnError: true
+
+          # Fallback to CLI if no Snyk service connection name is supplied.
+          - ${{ if eq(parameters.snykServiceConnection, '') }}:
+            - script: npm install -g snyk
+              displayName: Install Snyk CLI (fallback)
+
+            - script: |
+                if [ -n "${SNYK_ORG:-}" ]; then
+                  snyk test --all-projects --severity-threshold=high --org="$SNYK_ORG"
+                else
+                  snyk test --all-projects --severity-threshold=high
+                fi
+              displayName: Snyk Dependency Scan (fallback)
+              env:
+                SNYK_TOKEN: $(SNYK_TOKEN)
+                SNYK_ORG: $(SNYK_ORG)
+              continueOnError: true
+
+            - script: |
+                if [ -n "${SNYK_ORG:-}" ]; then
+                  snyk code test --severity-threshold=high --org="$SNYK_ORG"
+                else
+                  snyk code test --severity-threshold=high
+                fi
+              displayName: Snyk Code Scan (fallback)
+              env:
+                SNYK_TOKEN: $(SNYK_TOKEN)
+                SNYK_ORG: $(SNYK_ORG)
+              continueOnError: true
+
+          # GitVersion CLI
+          - script: |
+              dotnet tool install --global GitVersion.Tool
+              export PATH="$PATH:$HOME/.dotnet/tools"
+              dotnet-gitversion /output buildserver
+            displayName: Run GitVersion
+
+          # Set build number
+          - script: |
+              echo "##vso[build.updatebuildnumber]$(GitVersion.SemVer)"
+            displayName: Set Build Number
+
+
+          # Generate changelog
+          - script: |
+              if [ -f scripts/release/generate_changelog.sh ]; then
+                bash scripts/release/generate_changelog.sh CHANGELOG.md
+              else
+                echo "Changelog script not found, skipping."
+              fi
+            displayName: Generate Changelog
+
+          # Commit changelog back to the branch (skip PRs)
+          - script: |
+              set -euo pipefail
+              git config user.name "${GIT_TAG_USER:-Azure DevOps}"
+              git config user.email "${GIT_TAG_EMAIL:-azuredevops@local}"
+              git add CHANGELOG.md
+
+              if git diff --cached --quiet; then
+                echo "No changelog changes to commit."
+                exit 0
+              fi
+
+              git commit -m "docs(changelog): update for $(Build.BuildNumber) [skip ci]"
+              git push origin HEAD:$(Build.SourceBranchName)
+            displayName: Commit Changelog
+            env:
+              GIT_TAG_USER: $(GIT_TAG_USER)
+              GIT_TAG_EMAIL: $(GIT_TAG_EMAIL)
+            condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+          # Tag release (skip PRs)
+          - script: |
+              if [ -f scripts/release/tag_release.sh ]; then
+                bash scripts/release/tag_release.sh "$(GitVersion.SemVer)"
+              else
+                echo "Tag script not found, skipping."
+              fi
+            displayName: Tag Release
+            env:
+              GIT_TAG_USER: $(GIT_TAG_USER)
+              GIT_TAG_EMAIL: $(GIT_TAG_EMAIL)
+            condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+          # Publish changelog
+          - publish: CHANGELOG.md
+            artifact: changelog
+
+  - stage: Dev
+    displayName: Deploy to Dev
+    dependsOn: Build
+    # Deploy only for successful non-PR builds. Roll back only if the new container fails health checks.
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - deployment: DevDeploy
+        environment:
+          name: weave-agent-dev-vm
+          resourceType: virtualMachine
+          resourceName: weave-agent-dev-vm
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: changelog
+
+                # Deploy (runs on the Dev VM via self-hosted agent / deployment group agent pool)
+                - checkout: self
+
+                - script: |
+                    set -euo pipefail
+                    cd /home/azureuser/weave-agent/dev-ui
+
+                    COMPOSE_FILE='docker-compose.traefik.yml'
+                    if [ ! -f "${COMPOSE_FILE}" ]; then
+                      echo "Missing compose file in repo checkout: $(pwd)/${COMPOSE_FILE}"
+                      exit 1
+                    fi
+
+                    TAG="$(Build.BuildNumber)"
+                    IMAGE_NAME="$(DOCKER_IMAGE_NAME)"
+
+                    echo "Building image: ${IMAGE_NAME}:${TAG}"
+                    docker build -t "${IMAGE_NAME}:${TAG}" -f deployment/Dockerfile .
+
+                    export WEAVE_UI_IMAGE="${IMAGE_NAME}"
+                    export WEAVE_UI_TAG="${TAG}"
+
+                    if docker compose version >/dev/null 2>&1; then
+                      docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+                    else
+                      docker-compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+                    fi
+
+                    HEALTH_URL='$(DEV_HEALTHCHECK_URL)'
+                    SMOKE_URL='$(DEV_SMOKE_TEST_URL)'
+                    if [ -z "${SMOKE_URL}" ]; then
+                      SMOKE_URL="${HEALTH_URL}"
+                    fi
+
+                    echo "Health check: ${HEALTH_URL}"
+                    echo "Smoke test:  ${SMOKE_URL}"
+
+                    ok=0
+                    for i in $(seq 1 12); do
+                      if curl -fsS "${SMOKE_URL}" >/dev/null; then
+                        ok=1
+                        break
+                      fi
+                      echo "Smoke test attempt ${i}/12 failed; retrying in 5s..."
+                      sleep 5
+                    done
+
+                    if [ "${ok}" = "1" ]; then
+                      echo "Deployment healthy: ${IMAGE_NAME}:${TAG}"
+                      exit 0
+                    fi
+
+                    echo "Health check failed"
+                    exit 1
+                  displayName: Deploy (Dev)
+                  env:
+                    DOCKER_IMAGE_NAME: $(DOCKER_IMAGE_NAME)
+
+                # Teams notification
+                - script: |
+                    python3 - <<'PY'
+                    import json
+                    import os
+                    import sys
+                    import urllib.error
+                    import urllib.request
+
+                    webhook = os.getenv('TEAMS_WEBHOOK_URL')
+                    if not webhook:
+                        print('TEAMS_WEBHOOK_URL is not set.')
+                        sys.exit(1)
+
+                    changelog_paths = [
+                        os.path.join(os.getenv('PIPELINE_WORKSPACE', ''), 'changelog', 'CHANGELOG.md'),
+                        os.path.join(os.getcwd(), 'CHANGELOG.md'),
+                    ]
+
+                    recent_changes = []
+                    for path in changelog_paths:
+                        if path and os.path.isfile(path):
+                            with open(path, 'r', encoding='utf-8') as handle:
+                                recent_changes = [
+                                    line.strip() for line in handle.readlines() if line.strip().startswith('- ')
+                                ]
+                            if recent_changes:
+                                break
+
+                    if not recent_changes:
+                        recent_changes = ['- No release notes captured for this deployment.']
+
+                    payload = {
+                        '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',
+                        'type': 'AdaptiveCard',
+                        'version': '1.4',
+                        'body': [
+                            {
+                                'type': 'TextBlock',
+                                'text': '✅ Dev Deployment Successful',
+                                'weight': 'Bolder',
+                                'size': 'Medium'
+                            },
+                            {
+                                'type': 'FactSet',
+                                'facts': [
+                                    {'title': 'Build', 'value': os.getenv('BUILD_BUILDNUMBER', 'n/a')},
+                                    {'title': 'Version', 'value': os.getenv('GITVERSION_SEMVER', 'n/a')},
+                                    {'title': 'Environment', 'value': 'Dev'}
+                                ]
+                            },
+                            {
+                                'type': 'TextBlock',
+                                'text': 'Changes in this deploy:',
+                                'weight': 'Bolder',
+                                'wrap': True
+                            },
+                            {
+                                'type': 'TextBlock',
+                                'text': '\n'.join(recent_changes[:6]),
+                                'wrap': True
+                            }
+                        ]
+                    }
+
+                    req = urllib.request.Request(
+                        webhook,
+                        data=json.dumps(payload).encode('utf-8'),
+                        headers={'Content-Type': 'application/json'},
+                        method='POST'
+                    )
+
+                    try:
+                        with urllib.request.urlopen(req, timeout=30) as response:
+                            body = response.read().decode('utf-8', errors='ignore')
+                            print(f'Teams webhook HTTP {response.status}')
+                            if body.strip():
+                                print(body[:500])
+                    except urllib.error.HTTPError as exc:
+                        print(f'Teams webhook failed with HTTP {exc.code}')
+                        print(exc.read().decode('utf-8', errors='ignore'))
+                        raise
+                    PY
+                  displayName: Notify Teams (Dev)
+                  condition: always()
+                  continueOnError: true
+                  env:
+                    TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
+
+                    

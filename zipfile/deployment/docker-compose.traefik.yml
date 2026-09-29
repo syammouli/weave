@@ -1,0 +1,29 @@
+version: '3.9'
+
+services:
+
+  weave-agent-ui-frontend-test:
+    image: ${WEAVE_UI_IMAGE:-weaveagent.azurecr.io/weave-agent-dev-ui}:${WEAVE_UI_TAG:-latest}
+    container_name: weave-ui-dev
+    restart: unless-stopped
+    ports:
+      - "3000:80"   # optional (for debugging only)
+    networks:
+      - weave_network_dev
+    labels:
+      - "traefik.enable=true"
+
+      # 🔥 Subdomain routing (NO path prefix now)
+      - "traefik.http.routers.ui-test.rule=Host(`weave-agent-dev-v2.rtdomain.in`)"
+
+      - "traefik.http.routers.ui-test.entrypoints=websecure"
+      - "traefik.http.routers.ui-test.tls=true"
+
+      # optional but good practice
+      - "traefik.http.routers.ui-test.priority=10"
+
+      - "traefik.http.services.ui-test.loadbalancer.server.port=80"
+
+networks:
+  weave_network_dev:
+    external: true
